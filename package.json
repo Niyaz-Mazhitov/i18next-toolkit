@@ -1,0 +1,66 @@
+{
+  "name": "i18next-toolkit",
+  "version": "1.0.0",
+  "description": "i18n automation toolkit - extract, sync, and translate locales",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "i18next-toolkit": "./bin/i18next-toolkit.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "i18n",
+    "localization",
+    "translate",
+    "i18next",
+    "extraction",
+    "internationalization",
+    "locale",
+    "sync"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Niyaz-Mazhitov/i18next-toolkit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Niyaz-Mazhitov/i18next-toolkit/issues"
+  },
+  "homepage": "https://github.com/Niyaz-Mazhitov/i18next-toolkit#readme",
+  "dependencies": {
+    "@babel/generator": "^7.26.0",
+    "@babel/parser": "^7.26.0",
+    "@babel/traverse": "^7.26.0",
+    "@babel/types": "^7.26.0",
+    "commander": "^12.1.0",
+    "fast-glob": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/babel__generator": "^7.6.8",
+    "@types/babel__traverse": "^7.20.6",
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
