@@ -3,6 +3,8 @@ import path from 'node:path';
 import type { TranslateOptions, TranslateResult, TranslationJson } from '../types/index.js';
 import { getEmptyStrings, setNestedValue } from '../core/json-utils.js';
 import { translateWithConcurrency } from '../core/translator.js';
+import { createCache, TranslationCache } from '../core/cache.js';
+import { colors, output, createProgressBar } from '../core/output.js';
 
 const DEFAULT_LOCALES_PATH = 'public/locales';
 const DEFAULT_SOURCE_LANGUAGE = 'ru';
@@ -11,10 +13,28 @@ const DEFAULT_TARGET_LANGUAGES = ['en', 'kk'];
 export interface TranslateCommandOptions extends TranslateOptions {
   /** Silent mode - no console output */
   silent?: boolean;
+  /** Enable translation caching (default: true) */
+  useCache?: boolean;
+  /** Path to cache file */
+  cachePath?: string;
 }
 
 /**
- * Auto-translate empty strings in target language files using Google Translate
+ * Auto-translate empty strings in target language files using Google Translate.
+ * Supports caching to avoid redundant API calls.
+ *
+ * @param options - Translation options
+ * @returns Translation result with per-language statistics
+ *
+ * @example
+ * ```typescript
+ * const result = await translate({
+ *   from: 'ru',
+ *   to: ['en', 'kk'],
+ *   useCache: true,
+ * });
+ * console.log(`Translated ${result.languages[0].translated} strings to English`);
+ * ```
  */
 export async function translate(options: TranslateCommandOptions = {}): Promise<TranslateResult> {
   const root = options.root || process.cwd();
@@ -23,11 +43,26 @@ export async function translate(options: TranslateCommandOptions = {}): Promise<
   const to = options.to || DEFAULT_TARGET_LANGUAGES;
   const batchSize = options.batchSize || 50;
   const concurrency = options.concurrency || 5;
+  const useCache = options.useCache !== false; // default true
 
   const localesDir = path.join(root, localesPath);
 
   if (!options.silent) {
-    console.log('=== Auto-translating locales ===\n');
+    output.header('Auto-translate Locales');
+    output.keyValue('Source', from);
+    output.keyValue('Targets', to.join(', '));
+    output.newline();
+  }
+
+  // Initialize cache if enabled
+  let cache: TranslationCache | null = null;
+  if (useCache) {
+    cache = await createCache(root, options.cachePath);
+    const stats = cache.stats();
+    if (!options.silent && stats.entries > 0) {
+      output.info(`Loaded translation cache (${stats.entries} entries)`);
+      output.newline();
+    }
   }
 
   // Load source language
@@ -38,7 +73,7 @@ export async function translate(options: TranslateCommandOptions = {}): Promise<
     sourceJson = JSON.parse(fs.readFileSync(sourceFile, 'utf8'));
   } catch (e) {
     if (!options.silent) {
-      console.error(`❌ Failed to load source file: ${sourceFile}`);
+      output.error(`Failed to load source file: ${sourceFile}`);
     }
     return { languages: [] };
   }
@@ -53,7 +88,7 @@ export async function translate(options: TranslateCommandOptions = {}): Promise<
       targetJson = JSON.parse(fs.readFileSync(targetFile, 'utf8'));
     } catch {
       if (!options.silent) {
-        console.warn(`⚠ File not found: ${targetFile}, skipping`);
+        output.warn(`File not found: ${targetFile}, skipping`);
       }
       continue;
     }
@@ -62,8 +97,8 @@ export async function translate(options: TranslateCommandOptions = {}): Promise<
     const emptyStrings = getEmptyStrings(targetJson, sourceJson);
 
     if (!options.silent) {
-      console.log(`\n--- ${targetLang.toUpperCase()} ---`);
-      console.log(`Found ${emptyStrings.length} empty strings`);
+      output.section(colors.lang(targetLang.toUpperCase()));
+      output.keyValue('Empty strings', emptyStrings.length);
     }
 
     if (emptyStrings.length === 0) {
@@ -71,28 +106,71 @@ export async function translate(options: TranslateCommandOptions = {}): Promise<
       continue;
     }
 
-    // Translate
     const textsToTranslate = emptyStrings.map((item) => item.sourceValue);
+    let translated: string[];
+    let fromCache = 0;
 
-    if (!options.silent) {
-      console.log(`Translating ${textsToTranslate.length} texts from ${from} to ${targetLang}...`);
-    }
+    if (cache) {
+      // Check cache first
+      const { cached, uncached } = cache.getMany(textsToTranslate, from, targetLang);
+      fromCache = cached.size;
 
-    const translated = await translateWithConcurrency({
-      texts: textsToTranslate,
-      from,
-      to: targetLang,
-      batchSize,
-      concurrency,
-      onProgress: options.silent
-        ? undefined
-        : (done, total) => {
-            process.stdout.write(`\rProgress: ${done}/${total}`);
-          },
-    });
+      if (!options.silent && fromCache > 0) {
+        output.dim(`  Found ${fromCache} translations in cache`);
+      }
 
-    if (!options.silent) {
-      console.log(''); // New line after progress
+      if (uncached.length > 0) {
+        if (!options.silent) {
+          output.dim(`  Translating ${uncached.length} texts...`);
+        }
+
+        // Translate only uncached texts
+        const progressBar = !options.silent ? createProgressBar(uncached.length) : null;
+        progressBar?.start();
+
+        const newTranslations = await translateWithConcurrency({
+          texts: uncached,
+          from,
+          to: targetLang,
+          batchSize,
+          concurrency,
+          onProgress: progressBar
+            ? (done) => progressBar.update(done)
+            : undefined,
+        });
+
+        progressBar?.stop();
+
+        // Cache new translations
+        for (let i = 0; i < uncached.length; i++) {
+          cache.set(uncached[i], newTranslations[i], from, targetLang);
+          cached.set(uncached[i], newTranslations[i]);
+        }
+      }
+
+      // Build result array in original order
+      translated = textsToTranslate.map((text) => cached.get(text) || text);
+    } else {
+      // No cache - translate all
+      if (!options.silent) {
+        output.dim(`  Translating ${textsToTranslate.length} texts...`);
+      }
+
+      const progressBar = !options.silent ? createProgressBar(textsToTranslate.length) : null;
+      progressBar?.start();
+
+      translated = await translateWithConcurrency({
+        texts: textsToTranslate,
+        from,
+        to: targetLang,
+        batchSize,
+        concurrency,
+        onProgress: progressBar
+          ? (done) => progressBar.update(done)
+          : undefined,
+      });
+
+      progressBar?.stop();
     }
 
     // Apply translations
@@ -104,14 +182,21 @@ export async function translate(options: TranslateCommandOptions = {}): Promise<
     fs.writeFileSync(targetFile, JSON.stringify(targetJson, null, 2) + '\n', 'utf8');
 
     if (!options.silent) {
-      console.log(`✓ Saved ${targetFile}`);
+      output.success(`Translated ${emptyStrings.length} strings`);
     }
 
     result.languages.push({ code: targetLang, translated: emptyStrings.length });
   }
 
+  // Save cache
+  if (cache) {
+    await cache.save();
+  }
+
   if (!options.silent) {
-    console.log('\n✓ Done!');
+    output.newline();
+    output.separator();
+    output.success('Translation complete!');
   }
 
   return result;

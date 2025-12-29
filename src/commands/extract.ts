@@ -13,7 +13,8 @@ import {
   SKIP_CALLEE_NAMES,
   SKIP_JSX_ATTRIBUTES,
 } from '../core/parser.js';
-import { generateKey, hasRussian } from '../core/transliterate.js';
+import { generateKey, hasRussian, matchesSourcePattern } from '../core/transliterate.js';
+import { colors, output, Table } from '../core/output.js';
 
 const traverse = (_traverse as unknown as { default: typeof _traverse }).default || _traverse;
 const generate = (_generate as unknown as { default: typeof _generate }).default || _generate;
@@ -187,12 +188,18 @@ function processFile(
   const relPath = path.relative(root, filePath);
   const found: FoundString[] = [];
   const category = options.category || DEFAULT_CATEGORY;
+  const sourcePattern = options.sourcePattern;
+
+  // Helper to check if string matches source pattern
+  const matchesSource = (str: string): boolean => {
+    return sourcePattern ? matchesSourcePattern(str, sourcePattern) : hasRussian(str);
+  };
 
   let ast;
   try {
     ast = parseCode(code, relPath);
   } catch (e) {
-    console.warn(`⚠ Parse error ${relPath}: ${(e as Error).message}`);
+    output.warn(`Parse error ${relPath}: ${(e as Error).message}`);
     return { found: [], modified: false };
   }
 
@@ -202,7 +209,7 @@ function processFile(
     // String literals
     StringLiteral(p: NodePath<t.StringLiteral>) {
       const value = p.node.value;
-      if (!hasRussian(value)) return;
+      if (!matchesSource(value)) return;
       if (isInsideTCall(p)) return;
       if (isInsideSkippedCall(p)) return;
       if (isSkippedJSXAttribute(p)) return;
@@ -261,7 +268,7 @@ function processFile(
       const expressions = p.node.expressions;
 
       const fullText = quasis.map((q) => q.value.raw).join('{{}}');
-      if (!hasRussian(fullText)) return;
+      if (!matchesSource(fullText)) return;
 
       const line = p.node.loc?.start?.line || 0;
 
@@ -348,7 +355,7 @@ function processFile(
     // JSX text
     JSXText(p: NodePath<t.JSXText>) {
       const value = p.node.value.trim();
-      if (!hasRussian(value)) return;
+      if (!matchesSource(value)) return;
 
       const line = p.node.loc?.start?.line || 0;
       const key = generateKey(value, category, usedKeys, translations);
@@ -454,8 +461,9 @@ export async function extract(options: ExtractCommandOptions = {}): Promise<Extr
   const localeFile = path.join(root, localesPath, 'ru', 'translation.json');
 
   if (!options.silent) {
-    console.log(`=== Extract Russian strings ===`);
-    console.log(`Mode: ${mode}${options.dryRun ? ' (dry-run)' : ''}${options.autoGetters ? ' (auto-getters)' : ''}`);
+    output.header('Extract Strings');
+    const modeText = `${mode}${options.dryRun ? ' (dry-run)' : ''}${options.autoGetters ? ' (auto-getters)' : ''}`;
+    output.keyValue('Mode', modeText);
   }
 
   // Load existing translations
@@ -469,8 +477,14 @@ export async function extract(options: ExtractCommandOptions = {}): Promise<Extr
       usedKeys.add(`${category}.${key}`);
       translations[`${category}.${key}`] = existingTranslations[key] as string;
     }
-  } catch {
-    // File doesn't exist or invalid JSON
+  } catch (error) {
+    // File doesn't exist - this is expected for new projects
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      // Log parsing errors but continue
+      if (!options.silent) {
+        output.warn(`Could not parse ${localeFile}: ${(error as Error).message}`);
+      }
+    }
   }
 
   // Get files
@@ -482,11 +496,11 @@ export async function extract(options: ExtractCommandOptions = {}): Promise<Extr
     }
     files = [absolutePath];
     if (!options.silent) {
-      console.log(`File: ${options.file}\n`);
+      output.keyValue('File', options.file);
     }
   } else {
     if (!options.silent) {
-      console.log(`Pattern: ${include}\n`);
+      output.keyValue('Pattern', include);
     }
     files = await fg(include, {
       cwd: root,
@@ -496,7 +510,8 @@ export async function extract(options: ExtractCommandOptions = {}): Promise<Extr
   }
 
   if (!options.silent) {
-    console.log(`Files found: ${files.length}\n`);
+    output.keyValue('Files found', files.length);
+    output.newline();
   }
 
   // Validate mode
@@ -506,7 +521,7 @@ export async function extract(options: ExtractCommandOptions = {}): Promise<Extr
       allTranslations = JSON.parse(fs.readFileSync(localeFile, 'utf8'));
     } catch {
       if (!options.silent) {
-        console.error(`❌ Failed to load ${localeFile}`);
+        output.error(`Failed to load ${localeFile}`);
       }
       return { found: [], modifiedFiles: [], translations: {} };
     }
@@ -518,9 +533,10 @@ export async function extract(options: ExtractCommandOptions = {}): Promise<Extr
 
     if (!options.silent) {
       if (allMissing.length === 0) {
-        console.log('✅ All keys found in translations!');
+        output.success('All keys found in translations!');
       } else {
-        console.log(`❌ Found ${allMissing.length} missing keys:\n`);
+        output.error(`Found ${allMissing.length} missing keys:`);
+        output.newline();
 
         const byFile = new Map<string, typeof allMissing>();
         for (const item of allMissing) {
@@ -529,9 +545,9 @@ export async function extract(options: ExtractCommandOptions = {}): Promise<Extr
         }
 
         for (const [file, items] of byFile) {
-          console.log(`📄 ${file}`);
+          console.log(`${colors.symbols.file} ${colors.path(file)}`);
           for (const item of items) {
-            console.log(`   L${item.line}: t('${item.key}')`);
+            console.log(`   ${colors.dim(`L${item.line}:`)} t('${colors.key(item.key)}')`);
           }
         }
       }
@@ -554,7 +570,7 @@ export async function extract(options: ExtractCommandOptions = {}): Promise<Extr
 
   // Output results
   if (!options.silent && mode === 'report') {
-    console.log(`\n=== Found Russian strings: ${allFound.length} ===\n`);
+    output.section(`Found ${allFound.length} strings`);
 
     const byFile = new Map<string, FoundString[]>();
     for (const item of allFound) {
@@ -563,25 +579,25 @@ export async function extract(options: ExtractCommandOptions = {}): Promise<Extr
     }
 
     for (const [file, items] of byFile) {
-      console.log(`\n📄 ${file}`);
+      console.log(`\n${colors.symbols.file} ${colors.path(file)}`);
       for (const item of items) {
         const shortText = item.text.length > 60 ? item.text.substring(0, 60) + '...' : item.text;
-        console.log(`   L${item.line}: "${shortText}"`);
-        console.log(`         → ${item.key}`);
+        console.log(`   ${colors.dim(`L${item.line}:`)} "${shortText}"`);
+        console.log(`         ${colors.symbols.arrow} ${colors.key(item.key)}`);
       }
     }
 
     // Statistics
     if (allFound.length > 0) {
-      console.log('\n📊 Statistics:');
-      console.log('─'.repeat(40));
+      output.newline();
+      output.section('Statistics');
 
       const byType: Record<string, number> = {};
       for (const item of allFound) {
         byType[item.type] = (byType[item.type] || 0) + 1;
       }
 
-      console.log('\nBy type:');
+      const table = new Table(['Type', 'Count']);
       const typeLabels: Record<string, string> = {
         StringLiteral: 'Strings',
         TemplateLiteral: 'Templates',
@@ -589,15 +605,17 @@ export async function extract(options: ExtractCommandOptions = {}): Promise<Extr
         JSXText: 'JSX text',
       };
       for (const [type, count] of Object.entries(byType)) {
-        console.log(`  ${typeLabels[type] || type}: ${count}`);
+        table.addRow([typeLabels[type] || type, count]);
       }
+      table.print();
 
-      console.log('\nTop files:');
+      output.newline();
+      output.dim('Top files:');
       const sortedFiles = Array.from(byFile.entries())
         .sort((a, b) => b[1].length - a[1].length)
         .slice(0, 10);
       for (const [file, items] of sortedFiles) {
-        console.log(`  ${items.length.toString().padStart(4)} │ ${file}`);
+        console.log(`  ${colors.number(items.length.toString().padStart(4))} ${colors.dim('│')} ${file}`);
       }
     }
   }
@@ -624,32 +642,35 @@ export async function extract(options: ExtractCommandOptions = {}): Promise<Extr
       if (!options.dryRun) {
         fs.writeFileSync(localeFile, JSON.stringify(existing, null, 2) + '\n', 'utf8');
         if (!options.silent) {
-          console.log(`\n✓ Added ${newCount} new translations to ${localeFile}`);
+          output.success(`Added ${newCount} new translations to ${colors.path(localeFile)}`);
         }
       } else {
         if (!options.silent) {
-          console.log(`\n[DRY-RUN] Would add ${newCount} new translations`);
+          output.info(`[DRY-RUN] Would add ${newCount} new translations`);
         }
       }
-    } catch {
-      // Ignore errors
+    } catch (error) {
+      if (!options.silent) {
+        output.error(`Failed to save translations: ${(error as Error).message}`);
+      }
     }
 
     if (!options.silent && modifiedFiles.length > 0) {
-      console.log(
-        `\n${options.dryRun ? '[DRY-RUN] Would modify' : 'Modified'} files: ${modifiedFiles.length}`
-      );
+      output.newline();
+      output.keyValue(options.dryRun ? '[DRY-RUN] Would modify' : 'Modified files', modifiedFiles.length);
       for (const f of modifiedFiles.slice(0, 20)) {
-        console.log(`  - ${f}`);
+        console.log(`  ${colors.dim('-')} ${f}`);
       }
       if (modifiedFiles.length > 20) {
-        console.log(`  ... and ${modifiedFiles.length - 20} more`);
+        output.dim(`  ... and ${modifiedFiles.length - 20} more`);
       }
     }
   }
 
   if (!options.silent) {
-    console.log('\n✓ Done!');
+    output.newline();
+    output.separator();
+    output.success('Done!');
   }
 
   return {

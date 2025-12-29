@@ -9,17 +9,25 @@ import {
   fillFromSource,
   sortKeys,
 } from '../core/json-utils.js';
+import { colors, output, formatPercent } from '../core/output.js';
 
 const DEFAULT_LANGUAGES = ['ru', 'en', 'kk'];
 const DEFAULT_LOCALES_PATH = 'public/locales';
 
 /**
- * Load JSON file
+ * Load JSON file with error handling
+ * @param filePath - Path to JSON file
+ * @param silent - Whether to suppress warnings
+ * @returns Parsed JSON or empty object if file doesn't exist
  */
-function loadJson(filePath: string): TranslationJson {
+function loadJson(filePath: string, silent = false): TranslationJson {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch (e) {
+  } catch (error) {
+    const isNotFound = (error as NodeJS.ErrnoException).code === 'ENOENT';
+    if (!isNotFound && !silent) {
+      output.warn(`Could not load ${filePath}: ${(error as Error).message}`);
+    }
     return {};
   }
 }
@@ -49,7 +57,9 @@ export async function sync(options: SyncCommandOptions = {}): Promise<SyncResult
   const localesDir = path.join(root, localesPath);
 
   if (!options.silent) {
-    console.log('=== Syncing locales ===\n');
+    output.header('Sync Locales');
+    output.keyValue('Languages', languages.join(', '));
+    output.newline();
   }
 
   // Load all translations
@@ -57,10 +67,10 @@ export async function sync(options: SyncCommandOptions = {}): Promise<SyncResult
 
   for (const lang of languages) {
     const filePath = path.join(localesDir, lang, 'translation.json');
-    translations[lang] = loadJson(filePath);
+    translations[lang] = loadJson(filePath, options.silent);
 
     if (!options.silent) {
-      console.log(`Loaded ${lang}: ${countKeys(translations[lang])} keys`);
+      output.dim(`  Loaded ${colors.lang(lang)}: ${countKeys(translations[lang])} keys`);
     }
   }
 
@@ -69,7 +79,8 @@ export async function sync(options: SyncCommandOptions = {}): Promise<SyncResult
   const totalKeys = countKeys(allKeys);
 
   if (!options.silent) {
-    console.log(`\nTotal unique keys: ${totalKeys}`);
+    output.newline();
+    output.keyValue('Total unique keys', totalKeys);
   }
 
   // Create result
@@ -109,12 +120,15 @@ export async function sync(options: SyncCommandOptions = {}): Promise<SyncResult
     });
 
     if (!options.silent) {
-      console.log(`Saved ${lang}: ${filled}/${totalKeys} filled (${percent}%)`);
+      const percentColor = percent >= 90 ? colors.success : percent >= 50 ? colors.warning : colors.error;
+      console.log(`  ${colors.lang(lang.toUpperCase())}: ${filled}/${totalKeys} filled (${percentColor(formatPercent(percent))})`);
     }
   }
 
   if (!options.silent) {
-    console.log('\n✓ Done! Now you can translate empty strings in target languages.');
+    output.newline();
+    output.separator();
+    output.success('Sync complete! You can now translate empty strings.');
   }
 
   return {

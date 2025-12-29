@@ -7,6 +7,7 @@ import type { CallExpression } from '@babel/types';
 import type { FindMissingOptions, FindMissingResult, MissingKey, TranslationJson } from '../types/index.js';
 import { parseCode, DEFAULT_IGNORE_PATTERNS, DEFAULT_INCLUDE_PATTERN } from '../core/parser.js';
 import { countKeys, getNestedValue } from '../core/json-utils.js';
+import { colors, output } from '../core/output.js';
 
 const traverse = (_traverse as unknown as { default: typeof _traverse }).default || _traverse;
 
@@ -56,7 +57,9 @@ function findUsedKeysInFile(
   let ast;
   try {
     ast = parseCode(code, relPath);
-  } catch {
+  } catch (error) {
+    // Parse errors are expected for non-JS files or syntax errors
+    // Silently skip these files
     return { usedKeys: [], missing: [] };
   }
 
@@ -123,7 +126,8 @@ export async function findMissing(options: FindMissingCommandOptions = {}): Prom
   const translationFile = path.join(root, localesPath, sourceLanguage, 'translation.json');
 
   if (!options.silent) {
-    console.log('=== Finding missing translation keys ===\n');
+    output.header('Find Missing Keys');
+    output.keyValue('Source', sourceLanguage);
   }
 
   // Load translations
@@ -132,7 +136,7 @@ export async function findMissing(options: FindMissingCommandOptions = {}): Prom
     translations = JSON.parse(fs.readFileSync(translationFile, 'utf8'));
   } catch (e) {
     if (!options.silent) {
-      console.error(`❌ Failed to load ${translationFile}`);
+      output.error(`Failed to load ${translationFile}`);
     }
     return {
       totalKeysInTranslation: 0,
@@ -145,7 +149,7 @@ export async function findMissing(options: FindMissingCommandOptions = {}): Prom
   const allTranslationKeys = collectAllKeys(translations);
 
   if (!options.silent) {
-    console.log(`Loaded keys from translation.json: ${allTranslationKeys.size}`);
+    output.keyValue('Keys in file', allTranslationKeys.size);
   }
 
   // Get files to process
@@ -156,7 +160,8 @@ export async function findMissing(options: FindMissingCommandOptions = {}): Prom
   });
 
   if (!options.silent) {
-    console.log(`Scanning files: ${files.length}\n`);
+    output.keyValue('Scanning files', files.length);
+    output.newline();
   }
 
   const allMissing: UsedKey[] = [];
@@ -185,9 +190,10 @@ export async function findMissing(options: FindMissingCommandOptions = {}): Prom
   // Output results
   if (!options.silent) {
     if (uniqueMissing.size === 0) {
-      console.log('✅ All used keys found in translation.json!');
+      output.success('All used keys found in translation.json!');
     } else {
-      console.log(`❌ Found ${uniqueMissing.size} missing keys:\n`);
+      output.error(`Found ${uniqueMissing.size} missing keys:`);
+      output.newline();
 
       // Group by namespace
       const byNamespace = new Map<string, { key: string; locations: { file: string; line: number }[] }[]>();
@@ -201,23 +207,24 @@ export async function findMissing(options: FindMissingCommandOptions = {}): Prom
       }
 
       for (const [namespace, items] of byNamespace) {
-        console.log(`📁 ${namespace} (${items.length}):`);
+        console.log(`${colors.symbols.folder} ${colors.bold(namespace)} ${colors.dim(`(${items.length})`)}`);
 
         for (const { key, locations } of items.sort((a, b) => a.key.localeCompare(b.key))) {
           const firstLoc = locations[0];
-          const moreCount = locations.length > 1 ? ` (+${locations.length - 1} more)` : '';
-          console.log(`   ❌ ${key}  →  ${firstLoc.file}:${firstLoc.line}${moreCount}`);
+          const moreCount = locations.length > 1 ? colors.dim(` (+${locations.length - 1} more)`) : '';
+          console.log(`   ${colors.symbols.error} ${colors.key(key)}  ${colors.symbols.arrow}  ${colors.path(`${firstLoc.file}:${firstLoc.line}`)}${moreCount}`);
         }
 
         console.log();
       }
     }
 
-    console.log('─'.repeat(50));
-    console.log(`\nStatistics:`);
-    console.log(`  Keys in translation.json: ${allTranslationKeys.size}`);
-    console.log(`  Keys used in code: ${allUsedKeys.size}`);
-    console.log(`  Missing keys: ${uniqueMissing.size}`);
+    output.separator();
+    output.newline();
+    output.dim('Statistics:');
+    output.keyValue('Keys in translation.json', allTranslationKeys.size, 2);
+    output.keyValue('Keys used in code', allUsedKeys.size, 2);
+    output.keyValue('Missing keys', uniqueMissing.size, 2);
   }
 
   // Convert to result format

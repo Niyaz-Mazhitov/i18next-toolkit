@@ -1,7 +1,25 @@
+/**
+ * @fileoverview Utilities for working with i18next translation JSON files.
+ * Provides functions for merging, comparing, and manipulating nested translation objects.
+ */
+
 import type { TranslationJson } from '../types/index.js';
 
 /**
- * Deep merge two objects
+ * Deep merge two translation objects.
+ * Target values are preserved; source values are only added for missing keys.
+ *
+ * @param target - The target object to merge into
+ * @param source - The source object to merge from
+ * @returns A new merged object
+ *
+ * @example
+ * ```typescript
+ * const target = { common: { hello: 'Привет' } };
+ * const source = { common: { hello: 'Hi', bye: 'Bye' } };
+ * deepMerge(target, source);
+ * // Returns: { common: { hello: 'Привет', bye: 'Bye' } }
+ * ```
  */
 export function deepMerge(target: TranslationJson, source: TranslationJson): TranslationJson {
   const result = { ...target };
@@ -19,7 +37,19 @@ export function deepMerge(target: TranslationJson, source: TranslationJson): Tra
 }
 
 /**
- * Collect all unique keys from multiple translation objects
+ * Collect and merge all unique keys from multiple translation objects.
+ * Creates a unified structure containing all keys from all input objects.
+ *
+ * @param objects - Array of translation objects to merge
+ * @returns A merged object with all unique keys
+ *
+ * @example
+ * ```typescript
+ * const ru = { common: { hello: 'Привет' } };
+ * const en = { common: { bye: 'Bye' } };
+ * collectAllKeys([ru, en]);
+ * // Returns: { common: { hello: 'Привет', bye: 'Bye' } }
+ * ```
  */
 export function collectAllKeys(objects: TranslationJson[]): TranslationJson {
   let merged: TranslationJson = {};
@@ -32,7 +62,20 @@ export function collectAllKeys(objects: TranslationJson[]): TranslationJson {
 }
 
 /**
- * Fill empty values from source object
+ * Fill template structure with values from source object.
+ * Preserves template structure while copying values from source.
+ *
+ * @param template - The template defining the structure
+ * @param source - The source object containing values
+ * @returns A new object with template structure and source values
+ *
+ * @example
+ * ```typescript
+ * const template = { common: { hello: '', bye: '' } };
+ * const source = { common: { hello: 'Привет' } };
+ * fillFromSource(template, source);
+ * // Returns: { common: { hello: 'Привет', bye: '' } }
+ * ```
  */
 export function fillFromSource(
   template: TranslationJson,
@@ -55,7 +98,20 @@ export function fillFromSource(
 }
 
 /**
- * Create empty template from structure (for translation)
+ * Create empty template from structure, preserving existing translations.
+ * New keys get empty strings; existing keys keep their values.
+ *
+ * @param template - The template defining the structure
+ * @param source - Existing translations to preserve
+ * @returns A new object with template structure
+ *
+ * @example
+ * ```typescript
+ * const template = { common: { hello: '', bye: '', new: '' } };
+ * const source = { common: { hello: 'Hello' } };
+ * createEmptyTemplate(template, source);
+ * // Returns: { common: { hello: 'Hello', bye: '', new: '' } }
+ * ```
  */
 export function createEmptyTemplate(
   template: TranslationJson,
@@ -78,7 +134,18 @@ export function createEmptyTemplate(
 }
 
 /**
- * Sort object keys recursively
+ * Sort object keys alphabetically (recursive).
+ * Useful for maintaining consistent ordering in translation files.
+ *
+ * @param obj - The object to sort
+ * @returns A new object with sorted keys
+ *
+ * @example
+ * ```typescript
+ * const obj = { zebra: '1', apple: '2', banana: { z: '3', a: '4' } };
+ * sortKeys(obj);
+ * // Returns: { apple: '2', banana: { a: '4', z: '3' }, zebra: '1' }
+ * ```
  */
 export function sortKeys(obj: TranslationJson): TranslationJson {
   if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
@@ -96,7 +163,16 @@ export function sortKeys(obj: TranslationJson): TranslationJson {
 }
 
 /**
- * Count total keys in translation object
+ * Count total number of translation keys (leaf nodes) in object.
+ *
+ * @param obj - The translation object
+ * @returns Total count of translation keys
+ *
+ * @example
+ * ```typescript
+ * const obj = { common: { hello: 'Hi', bye: 'Bye' }, errors: { e1: 'Error' } };
+ * countKeys(obj); // Returns: 3
+ * ```
  */
 export function countKeys(obj: TranslationJson): number {
   let count = 0;
@@ -114,7 +190,16 @@ export function countKeys(obj: TranslationJson): number {
 }
 
 /**
- * Count filled (non-empty) keys
+ * Count filled (non-empty string) translation keys.
+ *
+ * @param obj - The translation object
+ * @returns Count of non-empty translation values
+ *
+ * @example
+ * ```typescript
+ * const obj = { common: { hello: 'Hi', bye: '' } };
+ * countFilled(obj); // Returns: 1
+ * ```
  */
 export function countFilled(obj: TranslationJson): number {
   let count = 0;
@@ -132,7 +217,18 @@ export function countFilled(obj: TranslationJson): number {
 }
 
 /**
- * Get value by nested key path (e.g., 'a.b.c')
+ * Get value by nested key path using dot notation.
+ *
+ * @param obj - The translation object
+ * @param key - Dot-notation key path (e.g., 'common.hello')
+ * @returns The string value or undefined if not found
+ *
+ * @example
+ * ```typescript
+ * const obj = { common: { hello: 'Hi' } };
+ * getNestedValue(obj, 'common.hello'); // Returns: 'Hi'
+ * getNestedValue(obj, 'common.bye');   // Returns: undefined
+ * ```
  */
 export function getNestedValue(obj: TranslationJson, key: string): string | undefined {
   const parts = key.split('.');
@@ -149,7 +245,19 @@ export function getNestedValue(obj: TranslationJson, key: string): string | unde
 }
 
 /**
- * Set value by nested key path
+ * Set value by nested key path using dot notation.
+ * Creates intermediate objects as needed.
+ *
+ * @param obj - The translation object to modify
+ * @param path - Dot-notation key path (e.g., 'common.hello')
+ * @param value - The value to set
+ *
+ * @example
+ * ```typescript
+ * const obj = {};
+ * setNestedValue(obj, 'common.hello', 'Hi');
+ * // obj is now: { common: { hello: 'Hi' } }
+ * ```
  */
 export function setNestedValue(obj: TranslationJson, path: string, value: string): void {
   const keys = path.split('.');
@@ -167,7 +275,18 @@ export function setNestedValue(obj: TranslationJson, path: string, value: string
 }
 
 /**
- * Flatten nested object to dot-notation keys
+ * Flatten nested object to dot-notation keys.
+ *
+ * @param obj - The translation object
+ * @param prefix - Key prefix for recursion (internal use)
+ * @returns Map of dot-notation keys to values
+ *
+ * @example
+ * ```typescript
+ * const obj = { common: { hello: 'Hi', bye: 'Bye' } };
+ * flattenKeys(obj);
+ * // Returns Map: { 'common.hello' => 'Hi', 'common.bye' => 'Bye' }
+ * ```
  */
 export function flattenKeys(obj: TranslationJson, prefix = ''): Map<string, string> {
   const result = new Map<string, string>();
@@ -189,7 +308,21 @@ export function flattenKeys(obj: TranslationJson, prefix = ''): Map<string, stri
 }
 
 /**
- * Get all empty strings with their paths and source values
+ * Find all empty strings that have corresponding source values.
+ * Used to identify strings that need translation.
+ *
+ * @param obj - The target translation object
+ * @param sourceObj - The source translation object
+ * @param prefix - Key prefix for recursion (internal use)
+ * @returns Array of keys with empty target values and non-empty source values
+ *
+ * @example
+ * ```typescript
+ * const target = { common: { hello: '', bye: 'Пока' } };
+ * const source = { common: { hello: 'Привет', bye: 'Пока' } };
+ * getEmptyStrings(target, source);
+ * // Returns: [{ key: 'common.hello', sourceValue: 'Привет' }]
+ * ```
  */
 export function getEmptyStrings(
   obj: TranslationJson,

@@ -1,6 +1,7 @@
 import type { TranslateResult, SyncResult } from '../types/index.js';
 import { sync } from './sync.js';
 import { translate } from './translate.js';
+import { colors, output } from '../core/output.js';
 
 export interface UpdateOptions {
   /** Root directory of the project */
@@ -47,19 +48,16 @@ export async function update(options: UpdateOptions = {}): Promise<UpdateResult>
   const allLanguages = [sourceLanguage, ...targetLanguages.filter(l => l !== sourceLanguage)];
 
   if (!options.silent) {
-    console.log('╔════════════════════════════════════════╗');
-    console.log('║         LOCALE-SYNC UPDATE             ║');
-    console.log('╚════════════════════════════════════════╝\n');
-    console.log(`Source language: ${sourceLanguage}`);
-    console.log(`Target languages: ${targetLanguages.join(', ')}`);
-    console.log(`Locales path: ${localesPath}\n`);
+    output.header('Update Locales');
+    output.keyValue('Source', sourceLanguage);
+    output.keyValue('Targets', targetLanguages.join(', '));
+    output.keyValue('Path', localesPath);
+    output.newline();
   }
 
   // Step 1: Sync
   if (!options.silent) {
-    console.log('┌────────────────────────────────────────┐');
-    console.log('│  Step 1/2: Syncing locale structure    │');
-    console.log('└────────────────────────────────────────┘\n');
+    output.step(1, 2, 'Syncing locale structure');
   }
 
   const syncResult = await sync({
@@ -70,14 +68,12 @@ export async function update(options: UpdateOptions = {}): Promise<UpdateResult>
   });
 
   if (!options.silent) {
-    console.log('\n');
+    output.newline();
   }
 
   // Step 2: Translate
   if (!options.silent) {
-    console.log('┌────────────────────────────────────────┐');
-    console.log('│  Step 2/2: Auto-translating strings    │');
-    console.log('└────────────────────────────────────────┘\n');
+    output.step(2, 2, 'Auto-translating strings');
   }
 
   const translateResult = await translate({
@@ -92,21 +88,22 @@ export async function update(options: UpdateOptions = {}): Promise<UpdateResult>
 
   // Summary
   if (!options.silent) {
-    console.log('\n╔════════════════════════════════════════╗');
-    console.log('║              SUMMARY                   ║');
-    console.log('╚════════════════════════════════════════╝\n');
-
-    console.log(`Total keys: ${syncResult.totalKeys}`);
-    console.log('\nLanguage stats:');
+    output.newline();
+    output.header('Summary');
+    output.keyValue('Total keys', syncResult.totalKeys);
+    output.newline();
 
     for (const lang of syncResult.languages) {
       const translated = translateResult.languages.find(l => l.code === lang.code);
       const newlyTranslated = translated?.translated || 0;
+      const newlyText = newlyTranslated > 0 ? colors.success(` [+${newlyTranslated} translated]`) : '';
 
-      console.log(`  ${lang.code.toUpperCase()}: ${lang.filled}/${lang.total} (${lang.percent}%)${newlyTranslated > 0 ? ` [+${newlyTranslated} translated]` : ''}`);
+      console.log(`  ${colors.lang(lang.code.toUpperCase())}: ${lang.filled}/${lang.total} (${lang.percent}%)${newlyText}`);
     }
 
-    console.log('\n✓ Update complete!');
+    output.newline();
+    output.separator();
+    output.success('Update complete!');
   }
 
   return {

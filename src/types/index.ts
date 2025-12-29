@@ -34,6 +34,8 @@ export interface ExtractOptions {
   localesPath?: string;
   /** Category prefix for extracted keys */
   category?: string;
+  /** Regex pattern to match source language strings (default: Russian) */
+  sourcePattern?: string;
 }
 
 export interface ExtractResult {
